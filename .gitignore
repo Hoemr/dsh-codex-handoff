@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+*.tgz
+.env
+.env.*
+# bridge runtime state (lives in ~/.codex-dsh-bridge, never here)
+runs/
+logs/

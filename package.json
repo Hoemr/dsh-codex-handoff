@@ -1,0 +1,66 @@
+{
+  "name": "dsh-codex-handoff",
+  "version": "0.1.0",
+  "description": "Bidirectional Codex ⇄ DeepSeek Harness handoff without computer use: hand tasks to DSH, get the result pushed back into the same Codex thread, and let DSH call Codex as a native tool. Ships a Codex skill, a DSH plugin and a zero-dependency CLI.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "bin": {
+    "dsh-bridge": "bin/bridge.mjs",
+    "dsh-codex-handoff": "bin/bridge.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "cordis.patch.yml",
+    "skills",
+    "install.sh",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check bin/bridge.mjs",
+    "doctor": "node bin/bridge.mjs doctor",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "codex",
+    "codex-cli",
+    "agent",
+    "multi-agent",
+    "handoff",
+    "cordis",
+    "plugin"
+  ],
+  "author": "Hoemr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hoemr/dsh-codex-handoff.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Hoemr/dsh-codex-handoff/issues"
+  },
+  "homepage": "https://github.com/Hoemr/dsh-codex-handoff#readme"
+}

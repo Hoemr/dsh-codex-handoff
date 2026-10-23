@@ -1,0 +1,13 @@
+# dsh-codex-handoff bundle patch: mount one host plugin row that registers the
+# Codex collaboration tools (codex_task / codex_send / codex_threads).
+- insert:
+    - id: codex-handoff
+      name: 'dsh-codex-handoff'
+      config:
+        # Empty means auto-detect: $CODEX_BIN → `which codex` → ChatGPT.app CLI.
+        codexBin: ''
+        # Sandbox passed to `codex exec` (`read-only` | `workspace-write` |
+        # `danger-full-access`). Empty = do not pass `-s`, use Codex's own default.
+        sandbox: workspace-write
+        # Per-task wall clock limit for codex_task.
+        timeoutMs: 900000
