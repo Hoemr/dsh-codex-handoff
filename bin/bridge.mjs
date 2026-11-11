@@ -19,6 +19,41 @@ import { fileURLToPath } from 'node:url';
 
 const SELF = fileURLToPath(import.meta.url);
 const HOME = os.homedir();
+const NODE_EXE = process.execPath;
+
+/**
+ * On Windows every PATH launcher from npm is a .cmd shim (dsh.cmd, codex.cmd)
+ * and Node refuses to spawn .cmd files directly (EINVAL on the shim, ENOENT on
+ * the bare name). Read the shim, take the JS entry it runs, and launch that
+ * with this same Node binary; on every other platform the launcher is used as is.
+ */
+function launcher(binPath) {
+  if (process.platform !== 'win32') return { command: binPath, prefix: [] };
+  const shim = /\.(cmd|bat)$/i.test(binPath) ? binPath : `${binPath}.cmd`;
+  try {
+    if (fs.existsSync(shim)) {
+      const text = fs.readFileSync(shim, 'utf8');
+      const m = text.match(/%dp0%\\(node_modules\\[^"%\r\n]+\.js)/);
+      if (m) {
+        const entry = path.join(path.dirname(shim), m[1]);
+        if (fs.existsSync(entry)) return { command: NODE_EXE, prefix: [entry] };
+      }
+    }
+  } catch {
+    /* fall through to the launcher path */
+  }
+  return { command: binPath, prefix: [] };
+}
+
+function spawnCli(binPath, args, options) {
+  const l = launcher(binPath);
+  return spawn(l.command, [...l.prefix, ...args], options);
+}
+
+function spawnCliSync(binPath, args, options) {
+  const l = launcher(binPath);
+  return spawnSync(l.command, [...l.prefix, ...args], options);
+}
 
 function pickStateDir() {
   const preferred = process.env.DSH_BRIDGE_HOME || path.join(HOME, '.codex-dsh-bridge');
@@ -82,13 +117,8 @@ const DSH_BIN = detectDshBin();
 
 function detectCodex() {
   if (process.env.CODEX_BIN) return process.env.CODEX_BIN;
-  try {
-    const r = spawnSync('which', ['codex'], { encoding: 'utf8' });
-    const p = (r.stdout || '').trim().split('\n')[0];
-    if (p && fs.existsSync(p)) return p;
-  } catch {
-    /* ignore */
-  }
+  const onPath = which('codex');
+  if (onPath) return onPath;
   const fallback =
     '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
   return fs.existsSync(fallback) ? fallback : 'codex';
@@ -155,15 +185,22 @@ function die(msg, code = 2) {
 }
 
 function which(cmd) {
-  const finder = process.platform === 'win32' ? 'where' : 'which';
-  const r = spawnSync(finder, [cmd], { encoding: 'utf8' });
-  if (r.status !== 0) return null;
-  const first = (r.stdout || '').trim().split('\r?\n')[0];
-  return first || null;
+  const win = process.platform === 'win32';
+  const finder = win ? 'where' : 'which';
+  // Windows also has an extension-less shell script next to the .cmd shim;
+  // prefer the shim, which is the one Node can actually launch.
+  for (const name of win ? [`${cmd}.cmd`, cmd] : [cmd]) {
+    const r = spawnSync(finder, [name], { encoding: 'utf8' });
+    if (r.status !== 0) continue;
+    const first = (r.stdout || '').trim().split(/\r?\n/)[0];
+    if (first) return first;
+  }
+  return null;
 }
 
 /** 进程祖先链，用于判断“这次调用是不是 Codex 发起的”。 */
 function processAncestry(depth = 12) {
+  if (process.platform === 'win32') return windowsAncestry(depth);
   const chain = [];
   let pid = process.pid;
   for (let i = 0; i < depth; i++) {
@@ -175,6 +212,37 @@ function processAncestry(depth = 12) {
     chain.push({ ppid: Number(m[1]), comm: m[2] });
     pid = Number(m[1]);
     if (!pid || pid === 1) break;
+  }
+  return chain;
+}
+
+/**
+ * Windows 没有 ps：一次 PowerShell 调用顺着 CIM 走完整条父链。
+ * 每条带镜像名 + 完整命令行 —— 满屏 node.exe 里，靠命令行里的
+ * "dsh\lib\bin.js" 与 "@openai\codex" 才能分清谁是 DSH、谁是 Codex。
+ */
+function windowsAncestry(depth = 12) {
+  const script = [
+    `$p = ${process.pid}; $out = @()`,
+    `for ($i = 0; $i -lt ${depth}; $i++) {`,
+    '  $q = Get-CimInstance Win32_Process -Filter "ProcessId=$p" -ErrorAction SilentlyContinue',
+    '  if (-not $q) { break }',
+    '  $out += "$($q.ParentProcessId)`t$($q.Name)`t$($q.CommandLine)"',
+    '  $p = $q.ParentProcessId',
+    '  if (-not $p) { break }',
+    '}',
+    '$out -join "`n"',
+  ].join('\n');
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  if (r.status !== 0) return [];
+  const chain = [];
+  for (const line of (r.stdout || '').split(/\r?\n/)) {
+    const [ppid, name, ...rest] = line.split('\t');
+    if (!name) continue;
+    chain.push({ ppid: Number(ppid), comm: `${name} ${rest.join(' ')}` });
   }
   return chain;
 }
@@ -296,7 +364,7 @@ function runDsh(record, opts, onEvent) {
 
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(DSH_BIN, args, {
+    const child = spawnCli(DSH_BIN, args, {
       cwd: opts.workspace,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -437,7 +505,7 @@ function buildNotifyMessage(record, result) {
 }
 
 function queueToCodex(threadId, message) {
-  const r = spawnSync(CODEX_BIN, ['queue', '--thread', threadId, '--message', message], {
+  const r = spawnCliSync(CODEX_BIN, ['queue', '--thread', threadId, '--message', message], {
     encoding: 'utf8',
     timeout: 120000,
     maxBuffer: 8 * 1024 * 1024,
@@ -452,7 +520,7 @@ function queueToCodex(threadId, message) {
 function resumeCodex(threadId, message, record) {
   const logPath = path.join(LOGS_DIR, `${record.runId}.codex-resume.log`);
   const out = fs.openSync(logPath, 'a');
-  const child = spawn(CODEX_BIN, ['exec', 'resume', threadId, message], {
+  const child = spawnCli(CODEX_BIN, ['exec', 'resume', threadId, message], {
     detached: true,
     stdio: ['ignore', out, out],
     cwd: record.workspace,
@@ -609,7 +677,7 @@ function cmdCodex(opts) {
 
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(CODEX_BIN, args, {
+    const child = spawnCli(CODEX_BIN, args, {
       cwd: workspace,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
@@ -724,7 +792,7 @@ function cmdDoctor() {
   add('Node', true, process.version);
   add('dsh 可执行文件', fs.existsSync(DSH_BIN), DSH_BIN);
   if (fs.existsSync(DSH_BIN)) {
-    const v = spawnSync(DSH_BIN, ['-V'], { encoding: 'utf8', timeout: 60000 });
+    const v = spawnCliSync(DSH_BIN, ['-V'], { encoding: 'utf8', timeout: 60000 });
     add('dsh 版本', v.status === 0, (v.stdout || v.stderr || '').trim().split('\n')[0] || 'unknown');
   }
   const patch = ensureModelPatch();
@@ -736,9 +804,9 @@ function cmdDoctor() {
     add(`凭据 ${name}`, !!creds[name], creds[name] || '未在环境或 ~/.dsh/.credentials.yaml 中找到');
   }
   add('codex 可执行文件', fs.existsSync(CODEX_BIN) || !!which(CODEX_BIN), CODEX_BIN);
-  const cv = spawnSync(CODEX_BIN, ['--version'], { encoding: 'utf8', timeout: 30000 });
+  const cv = spawnCliSync(CODEX_BIN, ['--version'], { encoding: 'utf8', timeout: 30000 });
   add('codex 版本', cv.status === 0, (cv.stdout || cv.stderr || '').trim().split('\n')[0]);
-  const qh = spawnSync(CODEX_BIN, ['queue', '--help'], { encoding: 'utf8', timeout: 30000 });
+  const qh = spawnCliSync(CODEX_BIN, ['queue', '--help'], { encoding: 'utf8', timeout: 30000 });
   add('codex queue 可用', qh.status === 0, qh.status === 0 ? 'ok' : '不可用（请升级 Codex CLI）');
   const detectedThread = detectCodexThread();
   add(

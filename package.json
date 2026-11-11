@@ -27,6 +27,8 @@
     "cordis.patch.yml",
     "skills",
     "install.sh",
+    "install.ps1",
+    "USAGE.zh.md",
     "README.md",
     "README.en.md",
     "CHANGELOG.md",
