@@ -24,6 +24,7 @@ Codex 自己接着往下干，全程没人通知
 - [为什么需要它](#为什么需要它)
 - [和其他 codex–dsh 插件的区别](#和其他-codexdsh-插件的区别)
 - [快速开始](#快速开始)
+  - [Windows 安装](#windows-安装)
 - [两种形态](#两种形态)
 - [工作原理](#工作原理)
 - [配置文件与命令](#配置文件与命令)
@@ -93,6 +94,25 @@ dsh-bridge status          # 最近的派发与回告记录
 ```
 
 要求 DSH 打开一个超过几秒的任务时，**用 `--background`**：阻塞模式会占住 Codex 的一次工具调用，长任务容易撞上 shell 超时。
+
+### Windows 安装
+
+需要 Windows 10/11、PowerShell 5.1+，且 Node 与 Codex CLI、DSH 都已在 PATH 上：
+
+```powershell
+git clone https://github.com/GitHdu/dsh-codex-handoff.git   # 含 install.ps1 的 fork
+cd dsh-codex-handoff
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+```
+
+`-Profile` 是要挂插件的 DSH profile（默认 `web`）；`-SkipPlugin` 只装 skill 与命令，不动插件注册。
+
+Windows 版与 macOS 版的差别（已在 Windows 11 + Node 26.13 + DSH 0.2.2-rc.1 + Codex CLI 0.167.1 实测）：
+
+- `.cmd` 垫片不能直接 `spawn`（Node 报 `EINVAL`）：先解析 `%APPDATA%\npm\*.cmd` 里的 `node <entry>.js`，再用 `process.execPath` 起真正的入口。
+- `which` / `ps` 在 Windows 上不存在：改用 `where` 与 `Get-CimInstance Win32_Process` 沿父进程链取 `CODEX_THREAD_ID`。
+- 线程列表用 `os.homedir()`，不依赖 `process.env.HOME`。
+- 命令装到 `%APPDATA%\npm`（已在 PATH 上），文件装到 `%LOCALAPPDATA%\dsh-codex-handoff`。
 
 ## 两种形态
 
@@ -184,7 +204,7 @@ dsh-bridge doctor
 
 ## 兼容性与已知限制
 
-- **已在 macOS 实测**：DSH 0.2.1-rc.2 + Codex CLI 0.163；Linux/Windows 的路径探测已做兼容处理，但未实测，欢迎反馈。
+- **已实测**：macOS（DSH 0.2.1-rc.2 + Codex CLI 0.163）、Windows 11（DSH 0.2.2-rc.1 + Codex CLI 0.167.1 + Node 26.13，见 [Windows 安装](#windows-安装)）；Linux 的路径探测已做兼容处理，但未实测，欢迎反馈。
 - **回传需要 Codex 会话处于"活"状态**（桌面端/TUI）。Codex 完全关闭时消息留在持久队列里，下次打开该会话消费；需要立刻推进用 `--notify resume`。
 - **headless 会话不是 GUI 里的"正在运行"会话**：它真实存在、可续聊，在 DSH 侧栏历史里打开即可。
 - **未发布 npm**：目前通过 `git clone` + `install.sh` 安装。
@@ -200,6 +220,8 @@ dsh-codex-handoff/
 ├── bin/bridge.mjs               # CLI 与桥的全部逻辑（零依赖）
 ├── skills/dsh-bridge/SKILL.md   # Codex 技能
 ├── install.sh                   # 一键安装（skill + 命令 + 可选插件）
+├── install.ps1                  # 同上，Windows 版
+├── USAGE.zh.md                  # 中文使用说明
 ├── package.json
 ├── README.md / README.en.md
 ├── CHANGELOG.md

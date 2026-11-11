@@ -49,7 +49,7 @@ This repo turns both into API calls:
 
 ## Quick start
 
-Requirements: macOS (primary tested platform), Node ^22.19 or >=24, Codex CLI, DSH Desktop.
+Requirements: macOS (primary tested platform) or Windows 10/11, Node ^22.19 or >=24, Codex CLI, DSH.
 
 ```bash
 git clone https://github.com/Hoemr/dsh-codex-handoff.git
@@ -70,6 +70,23 @@ dsh-bridge status      # recent dispatches and notifications
 ```
 
 Use `--background` for anything longer than a few seconds: the blocking form holds a Codex tool call open and can hit shell timeouts.
+
+### Windows install
+
+```powershell
+git clone https://github.com/GitHdu/dsh-codex-handoff.git   # the fork carrying install.ps1
+cd dsh-codex-handoff
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+```
+
+`-Profile` picks the DSH profile the plugin is mounted into (default `web`); `-SkipPlugin` installs only the skill and the CLI.
+
+What differs on Windows (verified on Windows 11 + Node 26.13 + DSH 0.2.2-rc.1 + Codex CLI 0.167.1):
+
+- A `.cmd` shim cannot be spawned directly (Node raises `EINVAL`), so the shim's `node <entry>.js` is resolved and launched with `process.execPath`.
+- `which` and `ps` do not exist; `where` and `Get-CimInstance Win32_Process` walk the parent chain for `CODEX_THREAD_ID`.
+- Thread listing uses `os.homedir()` instead of `process.env.HOME`.
+- Commands go to `%APPDATA%\npm` (already on PATH), files to `%LOCALAPPDATA%\dsh-codex-handoff`.
 
 ## Two shapes
 
@@ -126,7 +143,7 @@ Env: `DSH_BIN` `CODEX_BIN` `DSH_HOME` `DSH_BRIDGE_HOME` `DSH_BRIDGE_PROFILE`
 
 ## Limitations
 
-- Tested on macOS with DSH 0.2.1-rc.2 and Codex CLI 0.163; Linux/Windows path detection exists but is untested.
+- Tested on macOS (DSH 0.2.1-rc.2 + Codex CLI 0.163) and Windows 11 (DSH 0.2.2-rc.1 + Codex CLI 0.167.1 + Node 26.13, see [Windows install](#windows-install)); Linux path detection exists but is untested.
 - Delivery requires the Codex session to be live (desktop/TUI); otherwise the message waits in the durable queue. Use `--notify resume` to force.
 - Headless DSH sessions are real but not "running in the GUI" — open them from the DSH sidebar history.
 - Not published to npm yet.
